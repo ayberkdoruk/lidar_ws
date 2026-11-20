@@ -18,6 +18,11 @@ find_package(std_msgs REQUIRED)
 find_package(visualization_msgs REQUIRED)
 find_package(rcl_interfaces REQUIRED)
 find_package(geometry_msgs REQUIRED)
+# nesne_node için: nokta bulutu işleme kütüphanesi ve kendi mesajlarımız
+# NOT: PCL derlenirken "CMP0144 / FLANN_ROOT" uyarısı verir; PCL'in kendi dosyasından gelir, zararsızdır.
+find_package(PCL REQUIRED COMPONENTS common filters kdtree search sample_consensus segmentation)
+find_package(pcl_conversions REQUIRED)
+find_package(engel_algilama_msgs REQUIRED)
 
 # engel_node adında çalıştırılabilir dosya oluştur
 add_executable(engel_node src/engel_node.cpp)
@@ -32,8 +37,36 @@ ament_target_dependencies(engel_node
   geometry_msgs
 )
 
+# nesne_node: zemin ayırma + kümeleme + kutu + etiket + takip
+# Algoritmalar src/nesne/ altında (ROS'tan bağımsız), ROS tarafı nesne_node.cpp'de.
+add_executable(nesne_node
+  src/nesne_node.cpp
+  src/nesne/zemin.cpp
+  src/nesne/kumeleme.cpp
+  src/nesne/kutu.cpp
+  src/nesne/takip.cpp
+)
+target_include_directories(nesne_node PRIVATE src)
+# PCL başlıklarını "sistem" başlığı say: PCL'in kendi içindeki uyarılar bizim
+# uyarılarımızın arasında kaybolmasın
+target_include_directories(nesne_node SYSTEM PRIVATE ${PCL_INCLUDE_DIRS})
+target_compile_definitions(nesne_node PRIVATE ${PCL_DEFINITIONS})
+target_link_libraries(nesne_node ${PCL_LIBRARIES})
+# Derleme tipi verilmese bile optimize et (43 bin nokta x 10 Hz)
+target_compile_options(nesne_node PRIVATE -O2)
+ament_target_dependencies(nesne_node
+  rclcpp
+  sensor_msgs
+  std_msgs
+  visualization_msgs
+  rcl_interfaces
+  geometry_msgs
+  pcl_conversions
+  engel_algilama_msgs
+)
+
 # Çalıştırılabilir dosyayı "ros2 run" bulabilsin diye lib/<paket_adı> altına kur
-install(TARGETS engel_node
+install(TARGETS engel_node nesne_node
   DESTINATION lib/${PROJECT_NAME}
 )
 
@@ -43,8 +76,8 @@ install(PROGRAMS scripts/engel_ayar_paneli.py
   RENAME engel_ayar_paneli
 )
 
-# config ve launch klasörlerini share/<paket_adı> altına kur
-install(DIRECTORY config launch
+# config, launch, rviz ve simge klasörlerini share/<paket_adı> altına kur
+install(DIRECTORY config launch rviz resource
   DESTINATION share/${PROJECT_NAME}
 )
 

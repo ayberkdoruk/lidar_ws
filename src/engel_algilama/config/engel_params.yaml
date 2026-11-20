@@ -19,6 +19,12 @@ engel_node:
     dur_mesafesi: 2.0        # Engel bundan yakınsa DUR (metre)
     dikkat_mesafesi: 5.0     # Engel bundan yakınsa DIKKAT (metre). Daha uzağı işlenmez
 
+    # --- 4) Gürültü filtresi ---
+    min_nokta_sayisi: 10     # Engel sayılması için gereken en az nokta (tek tük noktaları yok say)
+
     # --- Gelişmiş (panelde yok) ---
-    min_nokta_sayisi: 5      # Engel sayılması için gereken en az nokta (gürültü filtresi)
     canli_izleme: true       # true: her turda karar + mesafe terminale yazılır
+
+# NOT: Panelde "uygulanan" son ayarlar ~/.ros/engel_algilama/son_ayarlar.yaml
+# dosyasına otomatik kaydedilir ve açılışta bu dosyanın ÜSTÜNE yüklenir.
+# Bu dosyadaki değerler sadece hiç kayıt yoksa (ilk açılışta) kullanılır.

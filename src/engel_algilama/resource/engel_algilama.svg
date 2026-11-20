@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <rect x="2" y="2" width="60" height="60" rx="12" fill="#23262d"/>
+  <!-- DIKKAT bölgesi (sarı) -->
+  <path d="M32 50 L12.2 15.7 A40 40 0 0 1 51.8 15.7 Z" fill="#ebbe00" opacity="0.85"/>
+  <!-- DUR bölgesi (kırmızı) -->
+  <path d="M32 50 L22.1 32.9 A20 20 0 0 1 41.9 32.9 Z" fill="#dc2828"/>
+  <!-- LiDAR -->
+  <circle cx="32" cy="50" r="6" fill="#50a0ff" stroke="#fff" stroke-width="2"/>
+</svg>

@@ -1,0 +1,27 @@
+#!/bin/bash
+# =============================================================================
+# Engel Algılama sistemini tek tıkla başlatır:
+#   LiDAR sürücüsü + RViz + engel_node + ayar paneli
+#
+# Masaüstündeki "Engel Algılama" simgesi bu betiği bir terminal penceresinde
+# çalıştırır. Kapatmak için: o terminalde Ctrl+C veya terminal penceresini kapatın.
+# =============================================================================
+
+source "$(dirname "$(readlink -f "$0")")/ros_ortami.sh"
+
+echo "=============================================="
+echo "   ENGEL ALGILAMA SISTEMI BASLATILIYOR"
+echo "=============================================="
+
+# Sistem zaten açıksa ikinci kez açma: iki sürücü aynı LiDAR portunu kullanamaz
+if surucu_calisiyor_mu; then
+    echo
+    echo "UYARI: LiDAR surucusu zaten calisiyor (sistem acik olabilir)."
+    echo "Once acik olan pencereyi/terminali kapatin, sonra tekrar deneyin."
+    bekle
+    exit 1
+fi
+
+ros2 launch engel_algilama sistem.launch.py
+
+bekle "Sistem kapandi. Pencereyi kapatmak icin Enter'a basin..."

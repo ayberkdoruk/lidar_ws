@@ -2,7 +2,8 @@
 """
 engel_ayar_paneli.py
 
-engel_node'un ayarlarını değiştirmek için Türkçe, açıklamalı bir pencere.
+engel_node'un ve nesne_node'un (kutulama alanı) ayarlarını değiştirmek için
+Türkçe, açıklamalı bir pencere.
 rqt_reconfigure yerine kullanılır.
 
 Pencerede:
@@ -10,13 +11,17 @@ Pencerede:
     (yelpaze şu an tam olarak nereye bakıyor, kaç derece, kaç metre).
   - Sağda: her ayar için kaydırma çubuğu + ne işe yaradığının açıklaması.
 
-Bu panel LiDAR'a veya sürücüsüne HİÇBİR ayar göndermez; sadece engel_node'un
-parametrelerini değiştirir.
+Bu panel LiDAR'a veya sürücüsüne HİÇBİR ayar göndermez; sadece engel_node ve
+nesne_node parametrelerini değiştirir. nesne_node kapalıysa onun çubukları kilitli kalır.
 """
 
 import math
+import os
+import re
 import sys
 import time
+
+import yaml
 
 import rclpy
 from rclpy.node import Node
@@ -28,9 +33,22 @@ from std_msgs.msg import Float32, String
 from python_qt_binding.QtCore import QPointF, QRectF, Qt, QTimer
 from python_qt_binding.QtGui import QBrush, QColor, QFont, QPainter, QPen
 from python_qt_binding.QtWidgets import (
-    QApplication, QGroupBox, QHBoxLayout, QLabel, QPushButton, QScrollArea,
-    QSlider, QVBoxLayout, QWidget,
+    QApplication, QComboBox, QFileDialog, QGroupBox, QHBoxLayout, QInputDialog,
+    QLabel, QMessageBox, QPushButton, QScrollArea, QSlider, QVBoxLayout, QWidget,
 )
+
+# -----------------------------------------------------------------------------
+# Kayıt dosyaları
+#   son_ayarlar.yaml : panelde en son UYGULANAN ayarlar. Her değişiklikte otomatik
+#                      yazılır; launch dosyası açılışta bunu yükler.
+#   profiller/*.yaml : "Kaydet…" ile isim verilerek saklanan ayarlar (ör. masa, arac)
+# Dosyalar ROS parametre dosyası biçimindedir, yani
+#   ros2 run engel_algilama engel_node --ros-args --params-file DOSYA.yaml
+# ile de doğrudan kullanılabilir.
+# -----------------------------------------------------------------------------
+KAYIT_KLASORU = os.path.expanduser("~/.ros/engel_algilama")
+SON_AYARLAR = os.path.join(KAYIT_KLASORU, "son_ayarlar.yaml")
+PROFIL_KLASORU = os.path.join(KAYIT_KLASORU, "profiller")
 
 # -----------------------------------------------------------------------------
 # Ayar tanımları: (parametre adı, başlık, birim, alt, üst, adım, varsayılan, açıklama)
@@ -64,10 +82,105 @@ GRUPLAR = [
          "Engel bundan yakınsa karar DİKKAT olur. Bundan uzak her şey GÜVENLİ "
          "sayılır. (Çizimde ve RViz'de sarı sınır = yelpazenin boyu)"),
     ]),
+    ("4) GÜRÜLTÜ FİLTRESİ", [
+        ("min_nokta_sayisi", "En az nokta sayısı", "nokta", 1, 100, 1, 10,
+         "Görüş alanında bundan AZ nokta varsa engel yok sayılır. Toz, yağmur damlası, "
+         "yansıma gibi tek tük noktalar karar verdirmez. Ayrıca mesafe, en yakın bu "
+         "kadarıncı noktaya göre ölçülür. Yanlış DUR alıyorsanız artırın (20-30); "
+         "küçük cisimleri kaçırıyorsanız azaltın. Bir insan 3 m'de yüzlerce nokta verir."),
+    ]),
 ]
 
+# nesne_node (kutu içine alma) ayarları. engel_node'un yelpazesinden AYRIDIR.
+# Alt/üst değerler nesne_node.cpp'deki aralıklarla AYNI olmalı.
+NESNE_GRUPLARI = [
+    ("5) KUTULAMA ALANI (nesneleri kutu içine alma)", [
+        ("nesne_merkez_aci", "Kutulama yönü", "°", -180.0, 180.0, 1.0, 0.0,
+         "Nesnelerin kutu içine alınacağı alanın baktığı yön. Yukarıdaki engel "
+         "yelpazesinden bağımsızdır. 0 = ön, +90 = sol, -90 = sağ, 180 = arka. "
+         "(Çizimde ve RViz'de mavi çizgi)"),
+        ("nesne_gorus_genisligi", "Kutulama genişliği", "°", 10.0, 360.0, 1.0, 120.0,
+         "Kutulama alanının toplam açısı. 360 → her yöndeki nesneler kutulanır."),
+        ("menzil", "Kutulama menzili", "m", 1.0, 50.0, 0.5, 20.0,
+         "Bundan uzaktaki nesneler kutulanmaz. Uzaktaki küçük parçalar ekranı "
+         "kalabalıklaştırıyorsa azaltın."),
+    ]),
+]
+
+# Hangi ayar hangi node'a ait
+NODE_GRUPLARI = {"engel_node": GRUPLAR, "nesne_node": NESNE_GRUPLARI}
+AYAR_NODE = {t[0]: node_adi for node_adi, gruplar in NODE_GRUPLARI.items()
+             for _, liste in gruplar for t in liste}
+
 # Ad → tanım sözlüğü (kolay erişim için)
-TANIMLAR = {t[0]: t for _, liste in GRUPLAR for t in liste}
+TANIMLAR = {t[0]: t for gruplar in NODE_GRUPLARI.values() for _, liste in gruplar for t in liste}
+
+# Tam sayı (int) olan parametreler; geri kalanların hepsi ondalıklı (double)
+TAM_SAYILAR = {"min_nokta_sayisi"}
+
+
+def ros_degeri(ad, deger):
+    """Parametreyi ROS'un beklediği tipe çevirir (int veya float)."""
+    return int(round(deger)) if ad in TAM_SAYILAR else float(deger)
+
+
+def ayar_dosyasi_yaz(yol, degerler):
+    """Ayarları ROS parametre dosyası biçiminde yazar (her node kendi bölümünde)."""
+    os.makedirs(os.path.dirname(yol), exist_ok=True)
+    icerik = {}
+    for ad, v in degerler.items():
+        node_adi = AYAR_NODE[ad]
+        icerik.setdefault(node_adi, {"ros__parameters": {}})
+        icerik[node_adi]["ros__parameters"][ad] = ros_degeri(ad, v)
+    gecici = yol + ".tmp"
+    with open(gecici, "w", encoding="utf-8") as f:
+        f.write("# engel_algilama ayar dosyasi (engel_ayar_paneli tarafindan yazildi)\n")
+        yaml.safe_dump(icerik, f, allow_unicode=True, sort_keys=False)
+    os.replace(gecici, yol)  # yarım yazılmış dosya kalmasın diye önce geçiciye yaz
+
+
+def ayar_dosyasi_oku(yol):
+    """
+    Ayar dosyasını okur ve kontrol eder.
+    Başarılıysa (degerler, None), hatalıysa (None, hata_metni) döndürür.
+    """
+    try:
+        with open(yol, encoding="utf-8") as f:
+            veri = yaml.safe_load(f) or {}
+    except (OSError, yaml.YAMLError) as e:
+        return None, f"Dosya okunamadı: {e}"
+
+    # ROS biçimi: {engel_node: {ros__parameters: {...}}, nesne_node: {...}} veya
+    # {/**: {...}}; düz sözlük de olur. İki node'un ayar adları çakışmadığı için
+    # bölümleri tek sözlükte birleştirebiliriz.
+    if not isinstance(veri, dict):
+        return None, "Dosya biçimi tanınmadı."
+    birlesik, bolum_bulundu = {}, False
+    for anahtar in ("/**", "engel_node", "/engel_node", "nesne_node", "/nesne_node"):
+        bolum = veri.get(anahtar)
+        if isinstance(bolum, dict):
+            bolum = bolum.get("ros__parameters", bolum)
+            if isinstance(bolum, dict):
+                birlesik.update(bolum)
+                bolum_bulundu = True
+    if bolum_bulundu:
+        veri = birlesik
+
+    degerler = {}
+    for ad, tanim in TANIMLAR.items():
+        if ad not in veri:
+            continue  # dosyada olmayan ayar mevcut değerinde kalır
+        try:
+            v = float(veri[ad])
+        except (TypeError, ValueError):
+            return None, f"'{ad}' sayı değil: {veri[ad]!r}"
+        alt, ust = tanim[3], tanim[4]
+        if not alt <= v <= ust:
+            return None, f"'{ad}' = {v:g} izin verilen aralığın ({alt:g} .. {ust:g}) dışında."
+        degerler[ad] = v
+    if not degerler:
+        return None, "Dosyada engel_node / nesne_node ayarı bulunamadı."
+    return degerler, None
 
 RENKLER = {
     "DUR": QColor(220, 40, 40),
@@ -123,8 +236,9 @@ class AyarSatiri(QWidget):
         self.cubuk.setRange(0, adim_sayisi)
         self.cubuk.valueChanged.connect(self._cubuk_oynadi)
 
-        alt_yazi = QLabel(f"{self.alt:g}{self.birim}")
-        ust_yazi = QLabel(f"{self.ust:g}{self.birim}")
+        bosluk = " " if len(self.birim) > 1 else ""  # "1 nokta" ama "10°", "3m"
+        alt_yazi = QLabel(f"{self.alt:g}{bosluk}{self.birim}")
+        ust_yazi = QLabel(f"{self.ust:g}{bosluk}{self.birim}")
         for y in (alt_yazi, ust_yazi):
             y.setStyleSheet("color: gray; font-size: 9pt;")
 
@@ -234,6 +348,17 @@ class YelpazeCizimi(QWidget):
         if yakin > 0:
             dilim(yakin, QColor(35, 35, 40), QPen(QColor(120, 120, 120), 1, Qt.DotLine))
 
+        # Kutulama alanı (nesne_node): sadece YÖNÜ gösterilir, dış çembere kadar
+        # mavi kesik çizgi. (Menzili genelde dikkat mesafesinden çok büyük, ölçeğe sığmaz.)
+        n_merkez, n_genislik = a["nesne_merkez_aci"], a["nesne_gorus_genisligi"]
+        p.setPen(QPen(QColor(100, 190, 255), 2, Qt.DashLine))
+        p.setBrush(Qt.NoBrush)
+        dis = QRectF(cx - R - 6, cy - R - 6, 2 * R + 12, 2 * R + 12)
+        if n_genislik >= 360.0:
+            p.drawEllipse(dis)
+        else:
+            p.drawPie(dis, int((90.0 + n_merkez - n_genislik / 2.0) * 16), int(n_genislik * 16))
+
         # Yön yazıları
         p.setPen(QColor(200, 200, 200))
         p.setFont(QFont("Sans", 9, QFont.Bold))
@@ -268,6 +393,20 @@ class YelpazeCizimi(QWidget):
 
 
 # -----------------------------------------------------------------------------
+# Bir node'a parametre bağlantısı (okuma / gönderme durumu)
+# -----------------------------------------------------------------------------
+class Baglanti:
+    def __init__(self, node, hedef, adlar):
+        self.istemci = AsyncParameterClient(node, hedef)
+        self.hedef = hedef
+        self.adlar = list(adlar)
+        self.yuklendi = False      # node'dan ilk değerler okundu mu?
+        self.okuma_istegi = None
+        self.gonderme_istegi = None
+        self.son_gonderilen = {}
+
+
+# -----------------------------------------------------------------------------
 # Ana pencere
 # -----------------------------------------------------------------------------
 class AnaPencere(QWidget):
@@ -278,12 +417,13 @@ class AnaPencere(QWidget):
         self.resize(1050, 720)
 
         hedef = node.declare_parameter("hedef_node", "engel_node").value
-        self.istemci = AsyncParameterClient(node, hedef)
+        nesne_hedef = node.declare_parameter("nesne_node", "nesne_node").value
         self.hedef = hedef
-        self.yuklendi = False        # node'dan ilk değerler okundu mu?
-        self.okuma_istegi = None
-        self.gonderme_istegi = None
-        self.son_gonderilen = {}
+        self.baglantilar = {
+            "engel_node": Baglanti(node, hedef, [t[0] for _, l in GRUPLAR for t in l]),
+            "nesne_node": Baglanti(node, nesne_hedef,
+                                   [t[0] for _, l in NESNE_GRUPLARI for t in l]),
+        }
 
         self.karar, self.mesafe, self.son_mesaj = None, -1.0, 0.0
         self.engel_noktasi, self.engel_zamani = None, 0.0
@@ -319,7 +459,7 @@ class AnaPencere(QWidget):
         self.satirlar = {}
         sag_icerik = QWidget()
         sag = QVBoxLayout(sag_icerik)
-        for grup_adi, liste in GRUPLAR:
+        for grup_adi, liste in GRUPLAR + NESNE_GRUPLARI:
             kutu = QGroupBox(grup_adi)
             kutu.setStyleSheet("QGroupBox { font-weight: bold; }")
             kutu_duzen = QVBoxLayout(kutu)
@@ -335,18 +475,62 @@ class AnaPencere(QWidget):
         kaydirma.setWidgetResizable(True)
         kaydirma.setWidget(sag_icerik)
 
-        self.durum = QLabel()
-        self.durum.setWordWrap(True)
-        varsayilan = QPushButton("Varsayılan değerlere dön")
+        # ---------------- Kayıtlı ayarlar bölümü ----------------
+        kayit_kutusu = QGroupBox("KAYITLI AYARLAR")
+        kayit_kutusu.setStyleSheet("QGroupBox { font-weight: bold; }")
+        kayit_duzen = QVBoxLayout(kayit_kutusu)
+
+        bilgi = QLabel("✓ Uyguladığınız ayarlar otomatik kaydedilir ve bir sonraki "
+                       "açılışta aynen yüklenir. Farklı ortamlar (masa, araç…) için "
+                       "isimli kayıt oluşturabilirsiniz.")
+        bilgi.setWordWrap(True)
+        bilgi.setStyleSheet("color: #555; font-weight: normal; font-size: 9pt;")
+
+        self.profil_listesi = QComboBox()
+        self.profil_listesi.setMinimumWidth(160)
+        yukle = QPushButton("Yükle")
+        yukle.setToolTip("Seçili kayıttaki ayarları uygula")
+        yukle.clicked.connect(self._profil_yukle)
+        sil = QPushButton("Sil")
+        sil.setToolTip("Seçili kaydı sil")
+        sil.clicked.connect(self._profil_sil)
+
+        satir1 = QHBoxLayout()
+        satir1.addWidget(QLabel("Kayıt:"))
+        satir1.addWidget(self.profil_listesi, 1)
+        satir1.addWidget(yukle)
+        satir1.addWidget(sil)
+
+        kaydet = QPushButton("💾 Kaydet…")
+        kaydet.setToolTip("Şu anki ayarları isim vererek kaydet")
+        kaydet.clicked.connect(self._profil_kaydet)
+        disa = QPushButton("Dışa aktar…")
+        disa.setToolTip("Ayarları istediğiniz bir yere .yaml dosyası olarak kaydet "
+                        "(başka bilgisayara taşımak için)")
+        disa.clicked.connect(self._disa_aktar)
+        ice = QPushButton("İçe aktar…")
+        ice.setToolTip("Bir .yaml ayar dosyasını aç ve uygula")
+        ice.clicked.connect(self._ice_aktar)
+        varsayilan = QPushButton("Varsayılana dön")
         varsayilan.clicked.connect(self._varsayilana_don)
 
-        alt = QHBoxLayout()
-        alt.addWidget(self.durum, 1)
-        alt.addWidget(varsayilan)
+        satir2 = QHBoxLayout()
+        for d in (kaydet, disa, ice, varsayilan):
+            satir2.addWidget(d)
+
+        kayit_duzen.addWidget(bilgi)
+        kayit_duzen.addLayout(satir1)
+        kayit_duzen.addLayout(satir2)
+        self._profilleri_listele()
+
+        self.durum = QLabel()
+        self.durum.setWordWrap(True)
+        self.durum.setMinimumHeight(36)
 
         sag_sutun = QVBoxLayout()
+        sag_sutun.addWidget(kayit_kutusu)
         sag_sutun.addWidget(kaydirma, 1)
-        sag_sutun.addLayout(alt)
+        sag_sutun.addWidget(self.durum)
 
         ana = QHBoxLayout(self)
         ana.addLayout(sol, 5)
@@ -370,12 +554,34 @@ class AnaPencere(QWidget):
     def _degerler(self):
         return {ad: s.deger_al() for ad, s in self.satirlar.items()}
 
+    def _baglanti(self, ad):
+        return self.baglantilar[AYAR_NODE[ad]]
+
+    @property
+    def yuklendi(self):
+        """En az bir node'a bağlanıldı mı?"""
+        return any(b.yuklendi for b in self.baglantilar.values())
+
+    def _yuklu_degerler(self):
+        """Sadece bağlanılmış node'ların değerleri (bağlanılmayanın çubukları gerçek değil)."""
+        return {ad: s.deger_al() for ad, s in self.satirlar.items()
+                if self._baglanti(ad).yuklendi}
+
+    def _otomatik_kaydet(self):
+        """son_ayarlar.yaml: bağlanılmamış node'un önceki kayıtlı değerleri korunur."""
+        eski, _ = ayar_dosyasi_oku(SON_AYARLAR) if os.path.exists(SON_AYARLAR) else ({}, None)
+        degerler = dict(eski or {})
+        degerler.update(self._yuklu_degerler())
+        ayar_dosyasi_yaz(SON_AYARLAR, degerler)
+
     def _durum_yaz(self, metin, renk="black"):
         self.durum.setText(metin)
         self.durum.setStyleSheet(f"color: {renk};")
 
     def _cizimi_guncelle(self):
-        d = self._degerler() if self.yuklendi else {t[0]: t[6] for t in TANIMLAR.values()}
+        # Bağlanılmamış node'un çubukları yerine varsayılanları çiz
+        d = {ad: (s.deger_al() if self._baglanti(ad).yuklendi else TANIMLAR[ad][6])
+             for ad, s in self.satirlar.items()}
         engel = None
         if self.engel_noktasi is not None and self.mesafe >= 0 \
                 and time.time() - self.engel_zamani < 0.5:
@@ -392,6 +598,15 @@ class AnaPencere(QWidget):
         bolge += (f"<br>Mesafe: <b>{d['min_mesafe']:.2f} m</b> ile "
                   f"<b>{d['dikkat_mesafesi']:.1f} m</b> arası · "
                   f"Yükseklik: <b>{d['z_min']:+.2f} m</b> ile <b>{d['z_max']:+.2f} m</b> arası")
+        ng = d["nesne_gorus_genisligi"]
+        if ng >= 360:
+            kutulama = "her yön (360°)"
+        else:
+            kutulama = (f"{aciyi_anlat(d['nesne_merkez_aci'] - ng / 2)} ile "
+                        f"{aciyi_anlat(d['nesne_merkez_aci'] + ng / 2)} arası ({ng:.0f}°)")
+        durum = "" if self.baglantilar["nesne_node"].yuklendi else " <i>(nesne_node bekleniyor)</i>"
+        bolge += (f"<br><span style='color:#3a8de0'>Kutulama alanı: <b>{kutulama}</b>, "
+                  f"<b>{d['menzil']:.1f} m</b>'ye kadar</span>{durum}")
         if d["z_max"] - d["z_min"] < 0.5:
             bolge += ("<br><span style='color:#d22'>⚠ Yükseklik aralığı çok dar "
                       f"({(d['z_max'] - d['z_min']) * 100:.0f} cm) — çoğu cisim görülmez!</span>")
@@ -430,31 +645,41 @@ class AnaPencere(QWidget):
     def _ros_isle(self):
         rclpy.spin_once(self.node, timeout_sec=0.0)
 
-        # 1) İlk açılışta node'un mevcut değerlerini oku
-        if not self.yuklendi and self.okuma_istegi is None and self.istemci.services_are_ready():
-            self.okuma_istegi = self.istemci.get_parameters(list(self.satirlar))
-        if self.okuma_istegi is not None and self.okuma_istegi.done():
-            sonuc = self.okuma_istegi.result()
-            self.okuma_istegi = None
-            if sonuc is not None and len(sonuc.values) == len(self.satirlar):
-                for ad, deger in zip(self.satirlar, sonuc.values):
-                    self.satirlar[ad].deger_ayarla(float(parameter_value_to_python(deger)))
-                    self.satirlar[ad].setEnabled(True)
-                self.son_gonderilen = self._degerler()
-                self.yuklendi = True
-                self._durum_yaz(f"'{self.hedef}' bağlandı. Çubukları kaydırın, "
-                                "değişiklik anında uygulanır.", "green")
-                self._cizimi_guncelle()
+        for b in self.baglantilar.values():
+            # 1) İlk açılışta node'un mevcut değerlerini oku
+            if not b.yuklendi and b.okuma_istegi is None and b.istemci.services_are_ready():
+                b.okuma_istegi = b.istemci.get_parameters(b.adlar)
+            if b.okuma_istegi is not None and b.okuma_istegi.done():
+                sonuc = b.okuma_istegi.result()
+                b.okuma_istegi = None
+                if sonuc is not None and len(sonuc.values) == len(b.adlar):
+                    for ad, deger in zip(b.adlar, sonuc.values):
+                        self.satirlar[ad].deger_ayarla(float(parameter_value_to_python(deger)))
+                        self.satirlar[ad].setEnabled(True)
+                    b.son_gonderilen = {ad: self.satirlar[ad].deger_al() for ad in b.adlar}
+                    ilk = not b.yuklendi
+                    b.yuklendi = True
+                    if ilk:
+                        self._durum_yaz(f"'{b.hedef}' bağlandı. Çubukları kaydırın, "
+                                        "değişiklik anında uygulanır.", "green")
+                    self._cizimi_guncelle()
 
-        # 2) Gönderilen ayarın sonucu geldi mi?
-        if self.gonderme_istegi is not None and self.gonderme_istegi.done():
-            sonuc = self.gonderme_istegi.result()
-            self.gonderme_istegi = None
-            hatalar = [r.reason for r in (sonuc.results if sonuc else []) if not r.successful]
-            if hatalar:
-                self._durum_yaz("Reddedildi: " + "; ".join(hatalar), "#d22")
-            else:
-                self._durum_yaz("Uygulandı ✓", "green")
+            # 2) Gönderilen ayarın sonucu geldi mi?
+            if b.gonderme_istegi is not None and b.gonderme_istegi.done():
+                sonuc = b.gonderme_istegi.result()
+                b.gonderme_istegi = None
+                hatalar = [r.reason for r in (sonuc.results if sonuc else []) if not r.successful]
+                if hatalar:
+                    self._durum_yaz(f"Reddedildi ({b.hedef}): " + "; ".join(hatalar), "#d22")
+                    # Node'daki gerçek değerleri tekrar okuyup çubukları onlara eşitle
+                    b.okuma_istegi = b.istemci.get_parameters(b.adlar)
+                else:
+                    # Başarılı: bir sonraki açılış için otomatik kaydet
+                    try:
+                        self._otomatik_kaydet()
+                        self._durum_yaz("Uygulandı ✓  (otomatik kaydedildi)", "green")
+                    except OSError as e:
+                        self._durum_yaz(f"Uygulandı ✓ ama otomatik kayıt başarısız: {e}", "#c60")
 
         # 3) Kararı veren nokta: yazı + çizim (saniyede ~10 kez yeterli)
         simdi = time.time()
@@ -500,16 +725,127 @@ class AnaPencere(QWidget):
     def _gonder(self):
         if not self.yuklendi:
             return
-        if self.gonderme_istegi is not None:
-            self.gonder_zamanlayici.start()  # önceki istek bitmedi, biraz sonra tekrar dene
-            return
         d = self._degerler()
-        degisenler = [Parameter(ad, Parameter.Type.DOUBLE, float(v))
-                      for ad, v in d.items() if self.son_gonderilen.get(ad) != v]
-        if not degisenler:
+        gonderilen_var = False
+        for b in self.baglantilar.values():
+            if not b.yuklendi:
+                continue
+            if b.gonderme_istegi is not None:
+                self.gonder_zamanlayici.start()  # önceki istek bitmedi, biraz sonra tekrar dene
+                continue
+            degisenler = []
+            for ad in b.adlar:
+                if b.son_gonderilen.get(ad) == d[ad]:
+                    continue
+                tip = Parameter.Type.INTEGER if ad in TAM_SAYILAR else Parameter.Type.DOUBLE
+                degisenler.append(Parameter(ad, tip, ros_degeri(ad, d[ad])))
+            if degisenler:
+                b.son_gonderilen = {ad: d[ad] for ad in b.adlar}
+                b.gonderme_istegi = b.istemci.set_parameters(degisenler)
+                gonderilen_var = True
+        if not gonderilen_var and not self.gonder_zamanlayici.isActive():
+            self._durum_yaz("Ayarlar zaten bu değerlerde ✓", "green")
+
+    # ---------------- Kayıtlı ayarlar ----------------
+    def _degerleri_uygula(self, degerler, kaynak):
+        """Dosyadan okunan değerleri çubuklara koyar ve node'a gönderir."""
+        if not self.yuklendi:
+            self._durum_yaz("Önce engel_node / nesne_node'a bağlanılmalı (node açık mı?).", "#d22")
             return
-        self.son_gonderilen = d
-        self.gonderme_istegi = self.istemci.set_parameters(degisenler)
+        for ad, v in degerler.items():
+            self.satirlar[ad].deger_ayarla(v)
+        self._ayar_degisti()
+        if self.gonder_zamanlayici.isActive():  # geçerliyse gönderim başladı
+            self._durum_yaz(f"'{kaynak}' yüklendi, uygulanıyor…", "green")
+
+    def _profilleri_listele(self, secili=None):
+        self.profil_listesi.clear()
+        if os.path.isdir(PROFIL_KLASORU):
+            adlar = sorted(f[:-5] for f in os.listdir(PROFIL_KLASORU) if f.endswith(".yaml"))
+            self.profil_listesi.addItems(adlar)
+        if self.profil_listesi.count() == 0:
+            self.profil_listesi.setPlaceholderText("(henüz kayıt yok)")
+        if secili:
+            self.profil_listesi.setCurrentText(secili)
+
+    def _profil_yolu(self, ad):
+        return os.path.join(PROFIL_KLASORU, ad + ".yaml")
+
+    def _profil_kaydet(self):
+        ad, tamam = QInputDialog.getText(
+            self, "Ayarları kaydet",
+            "Kayıt adı (ör. masa, arac, otopark):", text=self.profil_listesi.currentText())
+        if not tamam:
+            return
+        # Dosya adında sorun çıkarabilecek karakterleri temizle (Türkçe harfler kalır)
+        ad = re.sub(r"[^\w\-]+", "_", ad.strip()).strip("_")
+        if not ad:
+            self._durum_yaz("Geçerli bir isim girin.", "#d22")
+            return
+        yol = self._profil_yolu(ad)
+        if os.path.exists(yol) and QMessageBox.question(
+                self, "Üzerine yaz?", f"'{ad}' adında bir kayıt zaten var. Üzerine yazılsın mı?"
+        ) != QMessageBox.Yes:
+            return
+        try:
+            ayar_dosyasi_yaz(yol, self._yuklu_degerler())
+        except OSError as e:
+            self._durum_yaz(f"Kaydedilemedi: {e}", "#d22")
+            return
+        self._profilleri_listele(secili=ad)
+        self._durum_yaz(f"'{ad}' kaydedildi ✓", "green")
+
+    def _profil_yukle(self):
+        ad = self.profil_listesi.currentText()
+        if not ad:
+            self._durum_yaz("Yüklenecek kayıt yok. Önce 'Kaydet…' ile bir kayıt oluşturun.", "#d22")
+            return
+        degerler, hata = ayar_dosyasi_oku(self._profil_yolu(ad))
+        if hata:
+            self._durum_yaz(f"'{ad}' yüklenemedi: {hata}", "#d22")
+            return
+        self._degerleri_uygula(degerler, ad)
+
+    def _profil_sil(self):
+        ad = self.profil_listesi.currentText()
+        if not ad:
+            return
+        if QMessageBox.question(self, "Sil?", f"'{ad}' kaydı silinsin mi?") != QMessageBox.Yes:
+            return
+        try:
+            os.remove(self._profil_yolu(ad))
+        except OSError as e:
+            self._durum_yaz(f"Silinemedi: {e}", "#d22")
+            return
+        self._profilleri_listele()
+        self._durum_yaz(f"'{ad}' silindi.", "gray")
+
+    def _disa_aktar(self):
+        yol, _ = QFileDialog.getSaveFileName(
+            self, "Ayarları dışa aktar", os.path.expanduser("~/engel_ayarlari.yaml"),
+            "YAML ayar dosyası (*.yaml *.yml)")
+        if not yol:
+            return
+        if not yol.endswith((".yaml", ".yml")):
+            yol += ".yaml"
+        try:
+            ayar_dosyasi_yaz(yol, self._yuklu_degerler())
+        except OSError as e:
+            self._durum_yaz(f"Dışa aktarılamadı: {e}", "#d22")
+            return
+        self._durum_yaz(f"Dışa aktarıldı: {yol}", "green")
+
+    def _ice_aktar(self):
+        yol, _ = QFileDialog.getOpenFileName(
+            self, "Ayar dosyası aç", os.path.expanduser("~"),
+            "YAML ayar dosyası (*.yaml *.yml)")
+        if not yol:
+            return
+        degerler, hata = ayar_dosyasi_oku(yol)
+        if hata:
+            self._durum_yaz(f"İçe aktarılamadı: {hata}", "#d22")
+            return
+        self._degerleri_uygula(degerler, os.path.basename(yol))
 
     def _varsayilana_don(self):
         for ad, s in self.satirlar.items():

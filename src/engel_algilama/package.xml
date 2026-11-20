@@ -4,7 +4,7 @@
   <!-- Paketin adı: colcon ve ros2 komutlarında bu isimle çağrılır -->
   <name>engel_algilama</name>
   <version>0.1.0</version>
-  <description>RoboSense Helios 32 nokta bulutundan sektör tabanlı engel algılama (DUR / DIKKAT / GUVENLI)</description>
+  <description>RoboSense Helios 32 nokta bulutundan sektör tabanlı engel algılama (DUR / DIKKAT / GUVENLI) ve nesne algılama (kutu, mesafe, etiket, takip)</description>
   <maintainer email="ayberk@todo.todo">ayberk</maintainer>
   <license>Apache-2.0</license>
 
@@ -19,9 +19,18 @@
   <depend>rcl_interfaces</depend>
   <depend>geometry_msgs</depend>
 
+  <!-- nesne_node için: nokta bulutu işleme (PCL) ve kendi mesajlarımız -->
+  <depend>libpcl-all-dev</depend>
+  <depend>pcl_conversions</depend>
+  <depend>engel_algilama_msgs</depend>
+
   <!-- Ayar paneli (Python + Qt) için -->
   <exec_depend>rclpy</exec_depend>
   <exec_depend>python_qt_binding</exec_depend>
+
+  <!-- sistem.launch.py için: LiDAR sürücüsü ve RViz -->
+  <exec_depend>rslidar_sdk</exec_depend>
+  <exec_depend>rviz2</exec_depend>
 
   <!-- Sadece çalışma anında gerekli: launch dosyası için -->
   <exec_depend>launch</exec_depend>

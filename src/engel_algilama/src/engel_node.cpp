@@ -52,7 +52,7 @@ struct Ayarlar
   double dikkat_mesafesi = 5.0;   // metre: engel bundan yakınsa DIKKAT (aynı zamanda işlenen en uzak mesafe)
   double z_min = -1.2;            // metre: bundan alçak noktalar yok sayılır (zemin)
   double z_max = 1.0;             // metre: bundan yüksek noktalar yok sayılır (tavan)
-  int min_nokta_sayisi = 5;       // engel sayılması için gereken en az nokta
+  int min_nokta_sayisi = 10;      // engel sayılması için gereken en az nokta
   bool canli_izleme = true;       // her turda terminale yaz
 };
 
@@ -231,16 +231,19 @@ private:
     ayarlar_.dikkat_mesafesi = ondalikParametre("dikkat_mesafesi", 5.0, 0.5, 20.0,
       "Engel bundan yakinsa DIKKAT (metre). Daha uzaklar hic islenmez");
 
-    // --- Gelişmiş (sadece yaml'dan) ---
+    // --- 4) Gürültü filtresi ---
+    // Bir "engel" sayılmak için görüş alanında en az bu kadar nokta olmalı.
+    // Ayrıca engel mesafesi = en yakın N. noktanın mesafesi; yani tek tük
+    // (N'den az) hatalı nokta ne kadar yakında olursa olsun kararı etkilemez.
     rcl_interfaces::msg::ParameterDescriptor nokta_tanim;
     nokta_tanim.description = "Engel sayilmasi icin gereken en az nokta (gurultu filtresi)";
     rcl_interfaces::msg::IntegerRange nokta_aralik;
     nokta_aralik.from_value = 1;
-    nokta_aralik.to_value = 50;
+    nokta_aralik.to_value = 100;
     nokta_aralik.step = 1;
     nokta_tanim.integer_range.push_back(nokta_aralik);
     ayarlar_.min_nokta_sayisi = static_cast<int>(
-      declare_parameter<int64_t>("min_nokta_sayisi", 5, nokta_tanim));
+      declare_parameter<int64_t>("min_nokta_sayisi", 10, nokta_tanim));
 
     rcl_interfaces::msg::ParameterDescriptor canli_tanim;
     canli_tanim.description = "Her turda karar ve mesafeyi terminale yaz";

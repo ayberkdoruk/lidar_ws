@@ -1,0 +1,53 @@
+# nesne_node parametreleri
+# DİKKAT: Ondalıklı parametreleri mutlaka "1.0" gibi noktalı yazın.
+#
+# Varsayılanlar MASA düzenine göre (LiDAR masada, zemin ~0.81 m aşağıda).
+# Araca takıldığında en az zemin_z ve govde_* değerleri değiştirilmeli.
+# Hepsi çalışırken değiştirilebilir:  ros2 param set /nesne_node zemin_z -1.80
+nesne_node:
+  ros__parameters:
+    # --- 1) Hangi noktalar işlensin? ---
+    # Kutulama alanı: engel_node'un uyarı yelpazesinden AYRI. Ayar panelinde
+    # "5) KUTULAMA ALANI" çubuklarıyla değiştirilir (panel değerleri bunun üstüne yazar).
+    nesne_merkez_aci: 0.0         # Bakış yönü (derece). 0 = ön, +90 = sol, -90 = sağ
+    nesne_gorus_genisligi: 120.0  # Toplam açı (derece). 360 = her yön
+    menzil: 20.0                  # Bundan uzak noktalar işlenmez (yatay, metre)
+    # Gövde kutusu: içindeki noktalar yok sayılır. Araçta aracın kendisi, masada masa.
+    # Hepsi 0.0 = kapalı. LiDAR'a göre metre (x ileri, y sol).
+    # Aşağıdaki değerler MASA için kayıttan ölçüldü (2026-11-20). Araçta değiştirin.
+    govde_x_min: -1.1
+    govde_x_max: 1.1
+    govde_y_min: -0.95
+    govde_y_max: 0.9
+    voxel_boyu: 0.08        # Nokta seyreltme küp boyu (metre). Hız için; 0.0 = kapalı
+
+    # --- 2) Zemin ---
+    zemin_z: -0.81          # Beklenen zemin yüksekliği (LiDAR'a göre). Araçta: -montaj yüksekliği
+    zemin_bant: 0.30        # Zemin sadece zemin_z ± bu kadar içinde aranır
+    zemin_esik: 0.10        # Zemin düzlemine bundan yakın nokta zemin sayılır
+    zemin_max_egim: 10.0    # Zemin en fazla bu kadar eğik olabilir (derece)
+    zemin_min_nokta: 30     # Zemin düzleminin kabulü için en az nokta
+    max_yukseklik: 2.5      # Zeminden bu kadar yukarısı (tavan, dal) yok sayılır
+
+    # --- 3) Kümeleme (noktaları nesnelere ayırma) ---
+    kume_yatay_tol: 0.35    # Aynı nesne için en fazla yatay aralık (metre)
+    kume_dikey_taban: 0.25  # Dikey aralık eşiği = taban + artis * mesafe
+    kume_dikey_artis: 0.04  #   (uzaktaki nesnelerin katmanları birbirinden açık)
+    kume_min_nokta: 5       # Bundan az noktalı küme gürültü
+    kume_max_nokta: 20000
+
+    # --- 4) Etiket (kutu şekline göre kaba tahmin) ---
+    yaya_min_tepe: 1.0      # Yaya adayı: tepe noktası zeminden 1.0 - 2.1 m
+    yaya_max_tepe: 2.1
+    yaya_max_uzunluk: 1.2   #   ve taban en fazla 1.2 x 1.0 m
+    yaya_max_genislik: 1.0
+    yapi_min_uzunluk: 2.5   # Yapı (duvar): en az 2.5 m uzun ve en fazla 0.5 m ince
+    yapi_max_genislik: 0.5
+    yapi_kesin_uzunluk: 6.0 #   ya da 6 m'den uzun her şey
+
+    # --- 5) Takip ---
+    takip_kapi: 1.0         # Bir turda en fazla bu kadar yer değiştirebilir (metre)
+    takip_dogrulama: 3      # Yeni nesne 3 tur üst üste görülünce numara alır
+    takip_kayip: 5          # 5 tur görülmeyen nesne silinir
+
+    canli_izleme: true      # Saniyede bir özet satırı
