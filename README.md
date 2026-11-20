@@ -177,7 +177,7 @@ sudo apt install ros-jazzy-pcl-conversions libpcl-dev ros-jazzy-python-qt-bindin
 
 ```bash
 cd ~
-git clone https://github.com/<KULLANICI_ADI>/<DEPO_ADI>.git lidar_ws
+git clone https://github.com/ayberkdoruk/lidar_ws.git lidar_ws
 cd ~/lidar_ws/src
 ```
 
