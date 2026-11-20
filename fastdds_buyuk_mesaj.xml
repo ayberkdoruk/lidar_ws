@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  LiDAR nokta bulutu gibi büyük mesajlar (~1.5 MB) için Fast DDS ayarı.
+  Varsayılan paylaşımlı bellek (SHM) segmenti 512 KB olduğu için büyük mesajlar
+  UDP parçalarına bölünüp kayboluyordu. Burada segmenti 16 MB yapıyoruz.
+  Kullanım: export FASTRTPS_DEFAULT_PROFILES_FILE=~/lidar_ws/fastdds_buyuk_mesaj.xml
+-->
+<profiles xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">
+  <transport_descriptors>
+    <transport_descriptor>
+      <transport_id>shm_buyuk</transport_id>
+      <type>SHM</type>
+      <segment_size>16777216</segment_size>
+    </transport_descriptor>
+    <transport_descriptor>
+      <transport_id>udp_varsayilan</transport_id>
+      <type>UDPv4</type>
+    </transport_descriptor>
+  </transport_descriptors>
+
+  <participant profile_name="buyuk_mesaj_profili" is_default_profile="true">
+    <rtps>
+      <useBuiltinTransports>false</useBuiltinTransports>
+      <userTransports>
+        <transport_id>shm_buyuk</transport_id>
+        <transport_id>udp_varsayilan</transport_id>
+      </userTransports>
+    </rtps>
+  </participant>
+</profiles>

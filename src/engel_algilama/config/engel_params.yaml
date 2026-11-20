@@ -1,0 +1,24 @@
+# engel_node parametreleri
+# DİKKAT: Ondalıklı parametreleri mutlaka "90.0" gibi noktalı yazın.
+# "90" yazarsanız ROS bunu tam sayı sanar ve "tip uyuşmuyor" hatası verir.
+#
+# Bu değerler node her açıldığında yüklenir. Ayar panelinde yaptığınız
+# değişiklikler node kapanınca kaybolur; kalıcı olsun istiyorsanız buraya yazın.
+engel_node:
+  ros__parameters:
+    # --- 1) Nereye bakılsın? ---
+    merkez_aci: 0.0          # Bakış yönü (derece). 0 = ön, +90 = sol, -90 = sağ, 180 = arka
+    gorus_genisligi: 90.0    # Yelpazenin toplam açısı (derece). 360 = her yön
+
+    # --- 2) Hangi noktalar yok sayılsın? ---
+    min_mesafe: 0.3          # Bundan yakın noktalar yok sayılır (metre)
+    z_min: -1.2              # LiDAR merkezinden bu kadar aşağısı yok sayılır (zemin)
+    z_max: 1.0               # LiDAR merkezinden bu kadar yukarısı yok sayılır (tavan)
+
+    # --- 3) Ne zaman uyarı verilsin? ---
+    dur_mesafesi: 2.0        # Engel bundan yakınsa DUR (metre)
+    dikkat_mesafesi: 5.0     # Engel bundan yakınsa DIKKAT (metre). Daha uzağı işlenmez
+
+    # --- Gelişmiş (panelde yok) ---
+    min_nokta_sayisi: 5      # Engel sayılması için gereken en az nokta (gürültü filtresi)
+    canli_izleme: true       # true: her turda karar + mesafe terminale yazılır

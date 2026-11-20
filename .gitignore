@@ -1,0 +1,12 @@
+# colcon derleme çıktıları
+build/
+install/
+log/
+
+# LiDAR sürücüsü ve mesajları kendi git depolarında duruyor; burada takip edilmiyor
+src/rslidar_sdk/
+src/rslidar_msg/
+
+# Editör ayarları
+.vscode/
+__pycache__/
