@@ -13,7 +13,13 @@ Türkçe, açıklamalı bir **ayar paneli** ve hazır **RViz** ekranıyla birlik
 ![Ubuntu 24.04](https://img.shields.io/badge/Ubuntu-24.04-E95420?logo=ubuntu&logoColor=white)
 ![Lisans](https://img.shields.io/badge/lisans-Apache--2.0-blue)
 
-<img src="docs/images/rviz_nesneler.png" alt="RViz: nesne kutuları, mesafeler, yelpaze ve karar" width="900">
+<br>
+
+<img src="docs/images/rviz_nesneler.png" alt="RViz: nesne kutuları, mesafeler, yelpaze ve karar" width="100%">
+
+<sub>Gerçek LiDAR kaydı, RViz. <b>Turuncu</b>: engel kutuları · <b>mavi</b>: yaya adayı ·
+<b>sarı yelpaze</b>: uyarı alanı (kırmızı yay = DUR sınırı) · <b>açık mavi</b>: kutulama alanı.
+Her kutunun üstünde takip numarası, etiket ve mesafe yazar.</sub>
 
 </div>
 
@@ -77,25 +83,29 @@ Bu depo iki ROS 2 paketinden oluşur:
 
 ## 📸 Ekran görüntüleri
 
+Aynı ayarlarla, engel yaklaştıkça kararın değişimi (DUR sınırı 1.9 m, DİKKAT sınırı 3.0 m):
+
 <table>
   <tr>
-    <td align="center"><b>GÜVENLİ</b> — görüş alanında engel yok</td>
-    <td align="center"><b>DİKKAT</b> — engel 2.70 m'de</td>
-    <td align="center"><b>DUR</b> — engel 1.00 m'de</td>
+    <th width="33%">🟢 GÜVENLİ</th>
+    <th width="33%">🟡 DİKKAT</th>
+    <th width="33%">🔴 DUR</th>
   </tr>
   <tr>
     <td><img src="docs/images/panel_guvenli.png" alt="Ayar paneli: GÜVENLİ"></td>
     <td><img src="docs/images/panel_dikkat.png" alt="Ayar paneli: DİKKAT"></td>
     <td><img src="docs/images/panel_dur.png" alt="Ayar paneli: DUR"></td>
   </tr>
+  <tr>
+    <td align="center"><sub>Görüş alanında engel yok</sub></td>
+    <td align="center"><sub>Engel önde, 2.70 m'de</sub></td>
+    <td align="center"><sub>Engel solda 24°, 1.00 m'de</sub></td>
+  </tr>
 </table>
 
-Panelin sol tarafında yukarıdan bakış çizimi var: **kırmızı yay** DUR bölgesi, **sarı yay** DİKKAT
-bölgesi, **mavi kesik çizgi** nesne kutulama alanı. Kararı veren nokta çizimde işaretlenir ve
-üstte hangi açıda, kaç metrede, hangi yükseklikte olduğu yazılır.
-
-RViz'de (en üstteki görüntü) ham bulut, filtreyi geçen engel noktaları, yelpaze ve karar,
-nesne kutuları (numara + etiket + mesafe), hareketli nesneler için hız okları görünür.
+Yukarıdan bakış çiziminde **kırmızı** bölge DUR, **sarı** bölge DİKKAT alanıdır, **mavi kesik çizgi**
+nesne kutulama alanını gösterir. Kararı veren nokta çizimde işaretlenir; üstte hangi açıda, kaç metrede
+ve hangi yükseklikte olduğu yazar.
 
 ---
 
@@ -364,6 +374,10 @@ LiDAR'ı her seferinde kurmadan geliştirme yapmak için gerçek veriyi kaydedip
 ## 🎛️ Ayar paneli
 
 Panel `rqt_reconfigure` yerine, ne değiştirdiğinizi görerek ayar yapmanız için yazıldı.
+
+<p align="center">
+  <img src="docs/images/ayar_paneli.png" alt="Ayar paneli: canlı karar, yukarıdan bakış çizimi ve ayarlar" width="100%">
+</p>
 
 - **Sol taraf:** büyük renkli karar kutusu (DUR / DİKKAT / GÜVENLİ + mesafe), kararı veren noktanın
   açısı/mesafesi/yüksekliği ve yukarıdan bakış çizimi. Dış çember ölçeği altta yazar.
